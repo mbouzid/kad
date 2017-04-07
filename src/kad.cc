@@ -1,6 +1,6 @@
 #include <zlib.h>
 #include <iostream>
-#include <leveldb/db.h>
+#include <rocksdb/db.h>
 #include <cassert>
 #include <stdlib.h>
 #include <jansson.h>
@@ -17,13 +17,13 @@ using namespace std;
 
 int kad_dump(int argc, char **argv)
 {
-  leveldb::DB* db;
-  leveldb::Options options;
+  rocksdb::DB* db;
+  rocksdb::Options options;
   options.create_if_missing = true;
-  leveldb::Status status = leveldb::DB::Open(options, LEVELDB_PATH, &db);
+  rocksdb::Status status = rocksdb::DB::Open(options, LEVELDB_PATH, &db);
   assert(status.ok());
 
-  leveldb::Iterator* it = db->NewIterator(leveldb::ReadOptions());
+  rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     std::cout << it->key().ToString() << ": "  << it->value().ToString() << std::endl;
   }
@@ -31,10 +31,10 @@ int kad_dump(int argc, char **argv)
 }
 
 int kad_query(int argc, char **argv) {
-  leveldb::DB* db;
-  leveldb::Options options;
+  rocksdb::DB* db;
+  rocksdb::Options options;
   options.create_if_missing = true;
-  leveldb::Status status = leveldb::DB::Open(options, LEVELDB_PATH, &db);
+  rocksdb::Status status = rocksdb::DB::Open(options, LEVELDB_PATH, &db);
   assert(status.ok());
   std::string value;
 
@@ -46,7 +46,7 @@ int kad_query(int argc, char **argv) {
 
   char *kmer = argv[1];
 
-  leveldb::Status s = db->Get(leveldb::ReadOptions(), kmer, &value);
+  rocksdb::Status s = db->Get(rocksdb::ReadOptions(), kmer, &value);
   if (s.ok()) {
     std::cout << kmer << "\t" << value << std::endl;
   }
@@ -56,10 +56,10 @@ int kad_query(int argc, char **argv) {
 
 int kad_index(int argc, char **argv)
 {
-  leveldb::DB* db;
-  leveldb::Options options;
+  rocksdb::DB* db;
+  rocksdb::Options options;
   options.create_if_missing = true;
-  leveldb::Status status = leveldb::DB::Open(options, LEVELDB_PATH, &db);
+  rocksdb::Status status = rocksdb::DB::Open(options, LEVELDB_PATH, &db);
   assert(status.ok());
   std::string value;
 
@@ -97,7 +97,7 @@ int kad_index(int argc, char **argv)
         json_t *count_value = json_integer(count);
         json_object_set_new(count_entry,sample_name,count_value);
 
-        leveldb::Status s = db->Get(leveldb::ReadOptions(), kmer->s, &value);
+        rocksdb::Status s = db->Get(rocksdb::ReadOptions(), kmer->s, &value);
 
         if(s.ok()) {
           obj = json_loads(value.c_str(),JSON_DECODE_ANY,NULL);
@@ -112,7 +112,7 @@ int kad_index(int argc, char **argv)
 
         char *json = json_dumps(obj,JSON_COMPACT);
         
-        s = db->Put(leveldb::WriteOptions(), kmer->s, json);
+        s = db->Put(rocksdb::WriteOptions(), kmer->s, json);
 
         json_decref(counts);
         json_decref(obj);

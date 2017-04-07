@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -Wall -lleveldb -ljansson -lz
+CXXFLAGS = -Wall -lrocksdb -ljansson -lz
 OBJS = kad
 HEADERS=kstring.h kseq.h
 OBJECTS=kstring.o
@@ -8,9 +8,8 @@ OBJECTS=kstring.o
 
 all: $(OBJS)
 
-kad: kad.cc $(HEADERS) $(OBJECTS)
-# kad: kad.cc
-# 	g++ -Wall -std=c++11 -o $@ $< -lleveldb
-
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
+
+clean:
+	rm $(OBJECTS) $(OBJS)
