@@ -10,7 +10,7 @@
 
 KSEQ_INIT(gzFile, gzread)
 
-#define KAD_VERSION "0.0.1"
+#define KAD_VERSION "0.0.2"
 #define LEVELDB_PATH "/tmp/testdb"
 
 using namespace std;
