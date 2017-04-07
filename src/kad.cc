@@ -95,28 +95,28 @@ int kad_index(int argc, char **argv)
         json_t *counts;
         json_t *count_entry = json_object();
         json_t *count_value = json_integer(count);
-        json_object_set(count_entry,sample_name,count_value);
+        json_object_set_new(count_entry,sample_name,count_value);
 
         leveldb::Status s = db->Get(leveldb::ReadOptions(), kmer->s, &value);
 
         if(s.ok()) {
           obj = json_loads(value.c_str(),JSON_DECODE_ANY,NULL);
           counts = json_object_get(obj,"counts"); 
-
         } else {
           obj = json_object(); 
           counts = json_array();
+          json_object_set_new(obj,"counts",counts);
         }
 
-        json_array_append(counts,count_entry);
-
-        json_object_set(obj,"counts",counts);
+        json_array_append_new(counts,count_entry);
 
         char *json = json_dumps(obj,JSON_COMPACT);
         
         s = db->Put(leveldb::WriteOptions(), kmer->s, json);
-        delete json;
 
+        json_decref(counts);
+        json_decref(obj);
+        free(json);
       }
     }
     kmer->l = 0;
