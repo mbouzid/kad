@@ -233,6 +233,7 @@ int kad_index(kad_db_t* db, int argc, char **argv)
   int dret;
   uint16_t count;
   uint64_t kmer_int;
+  size_t nb_kmers = 0;
 
   kmer  = (kstring_t*)calloc(1, sizeof(kstring_t));
   str   = (kstring_t*)calloc(1, sizeof(kstring_t));
@@ -274,7 +275,11 @@ int kad_index(kad_db_t* db, int argc, char **argv)
       }
     }
     kmer->l = 0;
+    nb_kmers++;
   }
+
+  cerr << "Successfully loaded " << nb_kmers << " kmers" << endl;
+
   ks_destroy(ks);
   gzclose(fp);
   free(str->s); free(str);
