@@ -1,8 +1,7 @@
 CXX = g++
-CXXFLAGS = -Wall -lrocksdb -ljansson -lz
+CXXFLAGS = -Wall -lrocksdb -lz
 OBJS = kad
 HEADERS=kstring.h kseq.h
-OBJECTS=kstring.o
 
 .PHONY: all
 
@@ -12,4 +11,4 @@ all: $(OBJS)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm $(OBJECTS) $(OBJS)
+	rm $(OBJS)

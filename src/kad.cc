@@ -4,22 +4,25 @@
 #include <rocksdb/slice.h>
 #include <cassert>
 #include <stdlib.h>
-#include <jansson.h>
 #include <math.h> // floor()
 #include <cinttypes>
+#include <sys/stat.h> // mkdir()
+#include <sys/param.h> // MAXPATHLEN
 
 #include "kseq.h"
 #include "kstring.h"
 
 KSEQ_INIT(gzFile, gzread)
 
-#define KAD_VERSION "0.0.3"
-#define LEVELDB_PATH "/tmp/testdb"
+#define KAD_VERSION "0.0.4"
+#define KAD_DB_PREFIX ".kad"
 
 #define KMER_LENGTH 32
 
 enum DNA_MAP {C, A, T, G};  // A=1, C=0, T=2, G=3
 static const char NUCLEOTIDES[4] = { 'C', 'A', 'T', 'G' };
+
+struct stat sb; // Use to check if files/directories exists
 
 using namespace std;
 
@@ -58,64 +61,128 @@ string int_to_str(uint64_t kmer)
   return str;
 }
 
+typedef struct {
+  uint16_t id;
+  uint16_t n;
+} count_t;
 
-int kad_test(int argc, char **argv) {
-  char kmer[33] = "AGAGGAGGGACGGGCTGAAAAAGTACTCATTG";
+typedef struct {
+  rocksdb::DB* samples_db;
+  rocksdb::DB* counts_db;
+} kad_db_t;
 
-  uint64_t kmer_int = str_to_int(kmer);
+kad_db_t* kad_open(const char* path) {
+  kad_db_t* kad_db = (kad_db_t*)malloc(sizeof(kad_db_t));
+  rocksdb::Options options;
+  options.create_if_missing = true;
 
-  string kmer_str = int_to_str(kmer_int);
-  cout << kmer << "\t" << int_to_str(kmer_int) << endl;
+  string db_path = path;
+  db_path += "/";
+  db_path += KAD_DB_PREFIX;
+
+  if (stat(db_path.c_str(), &sb) != 0){
+    if (mkdir(db_path.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) != 0) {
+      cerr << "Failed to create KAD directory: " << db_path << endl;
+      exit(1);
+    } else {
+      cerr << "Successfully created KAD directory: " << db_path << endl;
+    }
+  }
+  else if (!S_ISDIR(sb.st_mode)) {
+    exit(1);
+  }
   
+ rocksdb::Status status;
+ 
+ status = rocksdb::DB::Open(options, string(db_path + "/samples").c_str(), &kad_db->samples_db);
+ if(!status.ok()) {
+   cerr << "Failed to open samples database" << endl;
+   exit(2);
+ }
 
-  char *buf = (char*)malloc(sizeof(uint64_t));
-  memcpy(buf, (char*)&kmer_int,sizeof(uint64_t));
-  
-  uint64_t kmer_int_found;
-  memcpy(&kmer_int_found, buf, sizeof(uint64_t));
+ status = rocksdb::DB::Open(options, string(db_path + "/counts").c_str(), &kad_db->counts_db);
+ if(!status.ok()) {
+   cerr << "Failed to open counts database" << endl;
+   exit(2);
+ }
 
-  cout << int_to_str(kmer_int) << endl;
+  return kad_db;
+}
 
-  //char *buf = malloc(sizeof(kmer_int));
-  //memcpy(buf, &kmer_int, sizeof(kmer_int));
-  //Slice(buf, sizeof(kmer_int));
+void kad_destroy(kad_db_t *db) {
+  delete db->samples_db;
+  delete db->counts_db;
+  free(db);
+}
 
-  //string key;
-  //PutFixed64(&key,kmer_int);
+uint16_t add_sample(kad_db_t* db, const char* sample_name){
+  uint16_t nb_keys;
+  string value;
+  // FIXME Test that "sample_name" is different from _nb_keys
+  // FIXME This should be atomic
+  rocksdb::Status s = db->samples_db->Get(rocksdb::ReadOptions(), "_nb_keys", &value);
+  if(s.ok()) {
+    nb_keys = atoi(value.c_str());
+  } else {
+    nb_keys = 0;
+  }
+  rocksdb::Slice key((char*)&nb_keys, sizeof(uint16_t));
+  s = db->samples_db->Put(rocksdb::WriteOptions(), key, sample_name);
+  if(!s.ok()) {
+    cerr << "failed to add sample to the database" << endl;
+    exit(3);
+  } 
+  // Update the number of keys
+  std::string nb_keys_str = std::to_string(nb_keys+1);
+  s = db->samples_db->Put(rocksdb::WriteOptions(), "_nb_keys", nb_keys_str);
+  if(!s.ok()) {
+    cerr << "failed to update the number of keys in the samples database" << endl;
+    exit(3);
+  }
+  return nb_keys;
+}
 
-  //char packed_kmer[KMER_PACKED_LENGTH];
-  //char unpacked_kmer[KMER_LENGTH + 1];
-  //unpacked_kmer[KMER_LENGTH] = '\0';
-  //pack_kmer(kmer,packed_kmer);
-  //unpack_kmer(packed_kmer,unpacked_kmer);
-  //cout << kmer << "\t" << packed_kmer << "\t" << unpacked_kmer << endl;
+string get_sample(kad_db_t* db, uint16_t id) {
+  string value;
+  rocksdb::Slice key((char*)&id, sizeof(uint16_t));
+  rocksdb::Status s = db->samples_db->Get(rocksdb::ReadOptions(), key, &value);
+  return value;
+}
+
+void print_counts(kad_db_t* db, size_t nb_counts, count_t* counts) {
+  // FIXME add local hash for sample names
+  for(size_t i = 0; i < nb_counts; i++) {
+    string sample_name = get_sample(db, counts[i].id);
+    if(i > 0)
+      cout << "\t";
+    cout << sample_name << "|" << counts[i].n;
+  }
+}
+
+int kad_test(kad_db_t* db, int argc, char **argv) {
+  //char kmer[33] = "AGAGGAGGGACGGGCTGAAAAAGTACTCATTG";
   return 0;
 }
 
-int kad_dump(int argc, char **argv)
+int kad_dump(kad_db_t* db, int argc, char **argv)
 {
-  rocksdb::DB* db;
-  rocksdb::Options options;
-  options.create_if_missing = true;
-  rocksdb::Status status = rocksdb::DB::Open(options, LEVELDB_PATH, &db);
-  assert(status.ok());
-
-  rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
+  rocksdb::Iterator* it = db->counts_db->NewIterator(rocksdb::ReadOptions());
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     uint64_t kmer_int_found;
     memcpy(&kmer_int_found, it->key().data(), sizeof(uint64_t));
-    std::cout << int_to_str(kmer_int_found) << ": "  << it->value().ToString() << std::endl;
+
+    count_t *counts = (count_t*)it->value().data();
+    size_t nb_counts = it->value().size() / sizeof(count_t);
+
+    std::cout << int_to_str(kmer_int_found) << "\t";
+    print_counts(db, nb_counts, counts);
+
+    cout << endl;
   }
   return 0;
 }
 
-int kad_query(int argc, char **argv) {
-  rocksdb::DB* db;
-  rocksdb::Options options;
-  options.create_if_missing = true;
-  rocksdb::Status status = rocksdb::DB::Open(options, LEVELDB_PATH, &db);
-  assert(status.ok());
-  std::string value;
+int kad_query(kad_db_t* db, int argc, char **argv) {
 
   if (argc < 2) {
 		fprintf(stderr, "\n");
@@ -123,28 +190,30 @@ int kad_query(int argc, char **argv) {
 		return 1;
   }
 
+  std::string value;
   char *kmer = argv[1];
 
   uint64_t kmer_int = str_to_int(kmer);
 
   rocksdb::Slice key((char*)&kmer_int, sizeof(uint64_t));
 
-  rocksdb::Status s = db->Get(rocksdb::ReadOptions(), key, &value);
+  rocksdb::Status s = db->counts_db->Get(rocksdb::ReadOptions(), key, &value);
   if (s.ok()) {
-    std::cout << kmer << "\t" << value << std::endl;
+    cout << kmer << "\t";
+
+    count_t *counts = (count_t*)value.data();
+    size_t nb_counts = value.size() / sizeof(count_t);
+
+    print_counts(db, nb_counts, counts);
+
+    cout << endl;
   }
 
   return 0;
 }
 
-int kad_index(int argc, char **argv)
+int kad_index(kad_db_t* db, int argc, char **argv)
 {
-  rocksdb::DB* db;
-  rocksdb::Options options;
-  options.create_if_missing = true;
-  rocksdb::Status status = rocksdb::DB::Open(options, LEVELDB_PATH, &db);
-  assert(status.ok());
-  std::string value;
 
   if (argc < 2) {
 		fprintf(stderr, "\n");
@@ -152,13 +221,17 @@ int kad_index(int argc, char **argv)
 		return 1;
   }
 
+  std::string value;
   char *sample_name = argv[1];
   char *file = argv[2];
+
+  uint16_t sample_id = add_sample(db, sample_name);
 
   gzFile fp;
 	kstream_t *ks;
 	kstring_t *str,*kmer;
-  int dret, count;
+  int dret;
+  uint16_t count;
   uint64_t kmer_int;
 
   kmer  = (kstring_t*)calloc(1, sizeof(kstring_t));
@@ -172,38 +245,32 @@ int kad_index(int argc, char **argv)
     kputs(str->s,kmer);
     if(dret != '\n') {
       if(ks_getuntil(ks, 0, str, &dret) > 0 && isdigit(str->s[0])) {
-        count = atoi(str->s);
+        count = (uint16_t)atoi(str->s);
         
         kmer_int = str_to_int(kmer->s);
 
         rocksdb::Slice key((char*)&kmer_int, sizeof(uint64_t));
 
-        json_t *obj; 
-        json_t *counts;
-        json_t *count_entry = json_object();
-        json_t *count_value = json_integer(count);
-        json_object_set_new(count_entry,sample_name,count_value);
+        count_t *counts;
+        size_t nb_counts = 1;
 
-        rocksdb::Status s = db->Get(rocksdb::ReadOptions(), key, &value);
+        rocksdb::Status s = db->counts_db->Get(rocksdb::ReadOptions(), key, &value);
 
+        // The k-mer is already in the database
         if(s.ok()) {
-          obj = json_loads(value.c_str(),JSON_DECODE_ANY,NULL);
-          counts = json_object_get(obj,"counts"); 
+          nb_counts = (value.size() / sizeof(count_t)) + 1;
+          counts = (count_t*)malloc(sizeof(count_t) * nb_counts);
+          memcpy(counts,value.data(),value.size());
         } else {
-          obj = json_object(); 
-          counts = json_array();
-          json_object_set_new(obj,"counts",counts);
+          counts = (count_t*)malloc(sizeof(count_t));
         }
 
-        json_array_append_new(counts,count_entry);
-
-        char *json = json_dumps(obj,JSON_COMPACT);
+        counts[nb_counts-1] = { sample_id, count };
         
-        s = db->Put(rocksdb::WriteOptions(), key, json);
+        rocksdb::Slice counts_value((char*)counts, nb_counts * sizeof(count_t));
+        s = db->counts_db->Put(rocksdb::WriteOptions(), key, counts_value);
 
-        json_decref(counts);
-        json_decref(obj);
-        free(json);
+        free(counts);
       }
     }
     kmer->l = 0;
@@ -231,13 +298,20 @@ static int usage()
 int main(int argc, char *argv[])
 {
 	if (argc == 1) return usage();
-	if (strcmp(argv[1], "index") == 0) kad_index(argc-1, argv+1);
-  else if (strcmp(argv[1], "dump") == 0) kad_dump(argc-1, argv+1);
-  else if (strcmp(argv[1], "query") == 0) kad_query(argc-1, argv+1);
-  else if (strcmp(argv[1], "test") == 0) kad_test(argc-1, argv+1);
+
+  char cwd[MAXPATHLEN];
+  getcwd(cwd, MAXPATHLEN);
+  kad_db_t* db = kad_open(cwd);
+
+	if (strcmp(argv[1], "index") == 0) kad_index(db, argc-1, argv+1);
+  else if (strcmp(argv[1], "dump") == 0) kad_dump(db, argc-1, argv+1);
+  else if (strcmp(argv[1], "query") == 0) kad_query(db, argc-1, argv+1);
+  else if (strcmp(argv[1], "test") == 0) kad_test(db, argc-1, argv+1);
 	else {
 		fprintf(stderr, "[main] unrecognized command '%s'. Abort!\n", argv[1]);
 		return 1;
 	}
+
+  kad_destroy(db);
 	return 0;
 }
