@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -Wall -lrocksdb -lz
+CXXFLAGS = -Wall -lrocksdb -lz -O2 -Wno-unused-function
 OBJS = kad
 HEADERS=kstring.h kseq.h
 
