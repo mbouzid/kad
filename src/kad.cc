@@ -2,6 +2,8 @@
 #include <iostream>
 #include <rocksdb/db.h>
 #include <rocksdb/slice.h>
+#include <rocksdb/write_batch.h>
+#include <rocksdb/comparator.h>
 #include <cassert>
 #include <stdlib.h>
 #include <math.h> // floor()
@@ -18,9 +20,11 @@ KSEQ_INIT(gzFile, gzread)
 #define KAD_DB_PREFIX ".kad"
 
 #define KMER_LENGTH 32
+#define NB_KMERS_PRINT 1000000
+#define BUFFER_SIZE 10000
 
-enum DNA_MAP {C, A, T, G};  // A=1, C=0, T=2, G=3
-static const char NUCLEOTIDES[4] = { 'C', 'A', 'T', 'G' };
+enum DNA_MAP {A, C, G, T};  // A=1, C=0, T=2, G=3
+static const char NUCLEOTIDES[4] = { 'A', 'C', 'G', 'T' };
 
 struct stat sb; // Use to check if files/directories exists
 
@@ -71,10 +75,38 @@ typedef struct {
   rocksdb::DB* counts_db;
 } kad_db_t;
 
+class KmerKeyComparator : public rocksdb::Comparator {
+  public:
+    int Compare(const rocksdb::Slice& a, const rocksdb::Slice& b) const {
+      uint64_t kmer_a;
+      uint64_t kmer_b;
+      memcpy(&kmer_a, a.data(), sizeof(uint64_t));
+      memcpy(&kmer_b, b.data(), sizeof(uint64_t));
+      if(kmer_a < kmer_b) {
+        return -1;
+      } else if(kmer_b < kmer_a) {
+        return +1;
+      }
+      return 0;
+    }
+    const char* Name() const { return "KmerKeyComparator"; }
+    void FindShortestSeparator(std::string*, const rocksdb::Slice&) const { }
+    void FindShortSuccessor(std::string*) const { }
+};
+
+
+
 kad_db_t* kad_open(const char* path) {
   kad_db_t* kad_db = (kad_db_t*)malloc(sizeof(kad_db_t));
-  rocksdb::Options options;
-  options.create_if_missing = true;
+  rocksdb::Options options_counts;
+  rocksdb::Options options_samples;
+  options_counts.create_if_missing = true;
+  options_samples.create_if_missing = true;
+
+  // Set options for counts
+  KmerKeyComparator *cmp_kmers = new KmerKeyComparator(); // FIXME This should be deleted
+  options_counts.comparator = cmp_kmers;
+  options_counts.max_open_files = 1000;
 
   string db_path = path;
   db_path += "/";
@@ -94,13 +126,13 @@ kad_db_t* kad_open(const char* path) {
   
  rocksdb::Status status;
  
- status = rocksdb::DB::Open(options, string(db_path + "/samples").c_str(), &kad_db->samples_db);
+ status = rocksdb::DB::Open(options_samples, string(db_path + "/samples").c_str(), &kad_db->samples_db);
  if(!status.ok()) {
    cerr << "Failed to open samples database" << endl;
    exit(2);
  }
 
- status = rocksdb::DB::Open(options, string(db_path + "/counts").c_str(), &kad_db->counts_db);
+ status = rocksdb::DB::Open(options_counts, string(db_path + "/counts").c_str(), &kad_db->counts_db);
  if(!status.ok()) {
    cerr << "Failed to open counts database" << endl;
    exit(2);
@@ -182,6 +214,34 @@ int kad_dump(kad_db_t* db, int argc, char **argv)
   return 0;
 }
 
+uint64_t rand_uint64(void) {
+  uint64_t r = 0;
+  for (int i=0; i<64; i += 30) {
+    r = r*(RAND_MAX + (uint64_t)1) + rand();
+  }
+  return r;
+}
+
+int kad_random_query(kad_db_t* db, int argc, char **argv) {
+
+  if (argc < 2) {
+		fprintf(stderr, "\n");
+		fprintf(stderr, "Usage:   kad random_query [options] nb_queries\n\n");
+		return 1;
+  }
+
+  size_t nb_queries = atoi(argv[1]);
+  string value;
+
+  for(size_t i = 0; i < nb_queries; i++) {
+    uint64_t random_kmer = rand_uint64();
+    rocksdb::Slice key((char*)&random_kmer, sizeof(uint64_t));
+    rocksdb::Status s = db->counts_db->Get(rocksdb::ReadOptions(), key, &value);
+  }
+
+  return 0;
+}
+
 int kad_query(kad_db_t* db, int argc, char **argv) {
 
   if (argc < 2) {
@@ -234,6 +294,8 @@ int kad_index(kad_db_t* db, int argc, char **argv)
   uint16_t count;
   uint64_t kmer_int;
   size_t nb_kmers = 0;
+  size_t batch_i = 0;
+  rocksdb::WriteBatch batch;
 
   kmer  = (kstring_t*)calloc(1, sizeof(kstring_t));
   str   = (kstring_t*)calloc(1, sizeof(kstring_t));
@@ -269,13 +331,28 @@ int kad_index(kad_db_t* db, int argc, char **argv)
         counts[nb_counts-1] = { sample_id, count };
         
         rocksdb::Slice counts_value((char*)counts, nb_counts * sizeof(count_t));
-        s = db->counts_db->Put(rocksdb::WriteOptions(), key, counts_value);
 
+        if(batch_i < BUFFER_SIZE) {
+          batch.Put(key, counts_value);
+          ++batch_i;
+        }
+
+        if(batch_i == BUFFER_SIZE ) {
+          s = db->counts_db->Write(rocksdb::WriteOptions(), &batch);
+          if(!s.ok()) {
+            cerr << s.ToString() << endl;
+            exit(4);
+          }
+          batch.Clear();
+          batch_i = 0;
+        }
         free(counts);
       }
     }
     kmer->l = 0;
     nb_kmers++;
+    if(nb_kmers % NB_KMERS_PRINT == 0)
+      cerr << nb_kmers  << " kmers loaded" << endl;
   }
 
   cerr << "Successfully loaded " << nb_kmers << " kmers" << endl;
@@ -295,7 +372,7 @@ static int usage()
 	fprintf(stderr, "Version: %s\n\n", KAD_VERSION);
 	fprintf(stderr, "Command: index      Index k-mer counts from a samples\n");
 	fprintf(stderr, "         query      Query the KAD database\n");
-	fprintf(stderr, "         dump      Dump the KAD database\n");
+	fprintf(stderr, "         dump       Dump the KAD database\n");
 	fprintf(stderr, "\n");
 	return 1;
 }
@@ -311,6 +388,7 @@ int main(int argc, char *argv[])
 	if (strcmp(argv[1], "index") == 0) kad_index(db, argc-1, argv+1);
   else if (strcmp(argv[1], "dump") == 0) kad_dump(db, argc-1, argv+1);
   else if (strcmp(argv[1], "query") == 0) kad_query(db, argc-1, argv+1);
+  else if (strcmp(argv[1], "random_query") == 0) kad_random_query(db, argc-1, argv+1);
   else if (strcmp(argv[1], "test") == 0) kad_test(db, argc-1, argv+1);
 	else {
 		fprintf(stderr, "[main] unrecognized command '%s'. Abort!\n", argv[1]);
