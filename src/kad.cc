@@ -194,6 +194,17 @@ int kad_test(kad_db_t* db, int argc, char **argv) {
   return 0;
 }
 
+int kad_samples(kad_db_t* db, int argc, char **argv) {
+  rocksdb::Iterator* it = db->samples_db->NewIterator(rocksdb::ReadOptions());
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    if(it->key().ToString().compare("_nb_keys") != 0) {
+      uint16_t *sample_id = (uint16_t*)it->key().data();
+      cout << *sample_id << "\t" << it->value().ToString() << endl;
+    }
+  }
+  return 0;
+}
+
 int kad_dump(kad_db_t* db, int argc, char **argv)
 {
   rocksdb::Iterator* it = db->counts_db->NewIterator(rocksdb::ReadOptions());
@@ -376,6 +387,7 @@ static int usage()
 	fprintf(stderr, "Command: index      Index k-mer counts from a samples\n");
 	fprintf(stderr, "         query      Query the KAD database\n");
 	fprintf(stderr, "         dump       Dump the KAD database\n");
+	fprintf(stderr, "         samples    List samples\n");
 	fprintf(stderr, "\n");
 	return 1;
 }
@@ -393,6 +405,7 @@ int main(int argc, char *argv[])
   else if (strcmp(argv[1], "query") == 0) kad_query(db, argc-1, argv+1);
   else if (strcmp(argv[1], "random_query") == 0) kad_random_query(db, argc-1, argv+1);
   else if (strcmp(argv[1], "test") == 0) kad_test(db, argc-1, argv+1);
+  else if (strcmp(argv[1], "samples") == 0) kad_samples(db, argc-1, argv+1);
 	else {
 		fprintf(stderr, "[main] unrecognized command '%s'. Abort!\n", argv[1]);
 		return 1;
