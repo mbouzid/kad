@@ -290,7 +290,7 @@ int kad_index(kad_db_t* db, int argc, char **argv)
   gzFile fp;
 	kstream_t *ks;
 	kstring_t *str,*kmer;
-  int dret;
+  int dret, count_int;
   uint16_t count;
   uint64_t kmer_int;
   size_t nb_kmers = 0;
@@ -308,7 +308,11 @@ int kad_index(kad_db_t* db, int argc, char **argv)
     kputs(str->s,kmer);
     if(dret != '\n') {
       if(ks_getuntil(ks, 0, str, &dret) > 0 && isdigit(str->s[0])) {
-        count = (uint16_t)atoi(str->s);
+        count_int = atoi(str->s);
+        if(count_int > UINT16_MAX)
+          count = UINT16_MAX;
+        else
+          count = (uint16_t)count_int;
         
         kmer_int = str_to_int(kmer->s);
 
