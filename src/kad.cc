@@ -78,13 +78,11 @@ typedef struct {
 class KmerKeyComparator : public rocksdb::Comparator {
   public:
     int Compare(const rocksdb::Slice& a, const rocksdb::Slice& b) const {
-      uint64_t kmer_a;
-      uint64_t kmer_b;
-      memcpy(&kmer_a, a.data(), sizeof(uint64_t));
-      memcpy(&kmer_b, b.data(), sizeof(uint64_t));
-      if(kmer_a < kmer_b) {
+      uint64_t *kmer_a = (uint64_t*)a.data();
+      uint64_t *kmer_b = (uint64_t*)b.data();
+      if(*kmer_a < *kmer_b) {
         return -1;
-      } else if(kmer_b < kmer_a) {
+      } else if(*kmer_b < *kmer_a) {
         return +1;
       }
       return 0;
@@ -200,13 +198,14 @@ int kad_dump(kad_db_t* db, int argc, char **argv)
 {
   rocksdb::Iterator* it = db->counts_db->NewIterator(rocksdb::ReadOptions());
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    uint64_t kmer_int_found;
-    memcpy(&kmer_int_found, it->key().data(), sizeof(uint64_t));
+    uint64_t *kmer_int_found;
+
+    kmer_int_found = (uint64_t*)it->key().data();
 
     count_t *counts = (count_t*)it->value().data();
     size_t nb_counts = it->value().size() / sizeof(count_t);
 
-    std::cout << int_to_str(kmer_int_found) << "\t";
+    std::cout << int_to_str(*kmer_int_found) << "\t";
     print_counts(db, nb_counts, counts);
 
     cout << endl;
