@@ -194,6 +194,17 @@ int kad_test(kad_db_t* db, int argc, char **argv) {
   return 0;
 }
 
+int kad_info(kad_db_t* db, int argc, char **argv) {
+  //char kmer[33] = "AGAGGAGGGACGGGCTGAAAAAGTACTCATTG";
+  string nb_kmers;
+  db->counts_db->GetProperty("rocksdb.estimate-num-keys", &nb_kmers);
+  string nb_samples;
+  rocksdb::Status s = db->samples_db->Get(rocksdb::ReadOptions(), "_nb_keys", &nb_samples);
+  cerr << "Nb kmers:   " << nb_kmers << endl;
+  cerr << "Nb samples: " << nb_samples << endl;
+  return 0;
+}
+
 int kad_samples(kad_db_t* db, int argc, char **argv) {
   rocksdb::Iterator* it = db->samples_db->NewIterator(rocksdb::ReadOptions());
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -207,19 +218,45 @@ int kad_samples(kad_db_t* db, int argc, char **argv) {
 
 int kad_dump(kad_db_t* db, int argc, char **argv)
 {
+  int c, show_counts = 1, help = 0, min_support = 0, max_support = INT_MAX;
+  while ((c = getopt(argc, argv, "hnm:M:")) >= 0) {
+    switch (c) {
+      case 'n': show_counts = 0; break;
+      case 'h': help = 1; break;
+      case 'm': min_support = atoi(optarg); break;
+      case 'M': max_support = atoi(optarg); break;
+    }
+  }
+
+  if (help) {
+		fprintf(stderr, "\n");
+		fprintf(stderr, "Usage:   kad dump\n\n");
+    fprintf(stderr, "Options: -n      only output k-mers\n");
+    fprintf(stderr, "         -h      print this help message\n");
+    fprintf(stderr, "         -m INT  min number of supported samples\n");
+    fprintf(stderr, "         -M INT  max number of supported samples\n");
+		return 1;
+  }
+
   rocksdb::Iterator* it = db->counts_db->NewIterator(rocksdb::ReadOptions());
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     uint64_t *kmer_int_found;
 
-    kmer_int_found = (uint64_t*)it->key().data();
+    int nb_counts = it->value().size() / sizeof(count_t);
 
-    count_t *counts = (count_t*)it->value().data();
-    size_t nb_counts = it->value().size() / sizeof(count_t);
+    if(nb_counts >= min_support && nb_counts <= max_support) {
+      kmer_int_found = (uint64_t*)it->key().data();
+      cout << int_to_str(*kmer_int_found);
 
-    std::cout << int_to_str(*kmer_int_found) << "\t";
-    print_counts(db, nb_counts, counts);
+      if(show_counts) {
+        count_t *counts = (count_t*)it->value().data();
+        size_t nb_counts = it->value().size() / sizeof(count_t);
+        cout << "\t";
+        print_counts(db, nb_counts, counts);
+      }
 
-    cout << endl;
+      cout << endl;
+    }
   }
   return 0;
 }
@@ -387,7 +424,8 @@ static int usage()
 	fprintf(stderr, "Command: index      Index k-mer counts from a samples\n");
 	fprintf(stderr, "         query      Query the KAD database\n");
 	fprintf(stderr, "         dump       Dump the KAD database\n");
-	fprintf(stderr, "         samples    List samples\n");
+	fprintf(stderr, "         samples    List of the samples\n");
+	fprintf(stderr, "         info       Get informations about the database\n");
 	fprintf(stderr, "\n");
 	return 1;
 }
@@ -406,6 +444,7 @@ int main(int argc, char *argv[])
   else if (strcmp(argv[1], "random_query") == 0) kad_random_query(db, argc-1, argv+1);
   else if (strcmp(argv[1], "test") == 0) kad_test(db, argc-1, argv+1);
   else if (strcmp(argv[1], "samples") == 0) kad_samples(db, argc-1, argv+1);
+  else if (strcmp(argv[1], "info") == 0) kad_info(db, argc-1, argv+1);
 	else {
 		fprintf(stderr, "[main] unrecognized command '%s'. Abort!\n", argv[1]);
 		return 1;
