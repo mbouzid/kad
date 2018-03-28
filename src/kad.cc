@@ -145,7 +145,7 @@ void kad_destroy(kad_db_t *db) {
   free(db);
 }
 
-uint16_t add_sample(kad_db_t* db, const char* sample_name){
+uint16_t nb_samples(kad_db_t*db) {
   uint16_t nb_keys;
   string value;
   // FIXME Test that "sample_name" is different from _nb_keys
@@ -156,8 +156,13 @@ uint16_t add_sample(kad_db_t* db, const char* sample_name){
   } else {
     nb_keys = 0;
   }
+  return nb_keys;
+}
+
+uint16_t add_sample(kad_db_t* db, const char* sample_name){
+  uint16_t nb_keys = nb_samples(db);
   rocksdb::Slice key((char*)&nb_keys, sizeof(uint16_t));
-  s = db->samples_db->Put(rocksdb::WriteOptions(), key, sample_name);
+  rocksdb::Status s = db->samples_db->Put(rocksdb::WriteOptions(), key, sample_name);
   if(!s.ok()) {
     cerr << "failed to add sample to the database" << endl;
     exit(3);
@@ -194,8 +199,21 @@ int kad_test(kad_db_t* db, int argc, char **argv) {
   return 0;
 }
 
+int kad_hist(kad_db_t* db, int argc, char **argv) {
+  rocksdb::Iterator* it = db->counts_db->NewIterator(rocksdb::ReadOptions());
+  uint16_t nb_keys = nb_samples(db);
+  std::vector<int> hist(nb_keys);
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    int nb_counts = it->value().size() / sizeof(count_t);
+    hist[nb_counts - 1]++;
+  }
+  for(size_t i = 0; i < hist.size(); i++) {
+    cout << (i + 1) << "\t" << hist[i] << endl;
+  }
+  return 0;
+}
+
 int kad_info(kad_db_t* db, int argc, char **argv) {
-  //char kmer[33] = "AGAGGAGGGACGGGCTGAAAAAGTACTCATTG";
   string nb_kmers;
   db->counts_db->GetProperty("rocksdb.estimate-num-keys", &nb_kmers);
   string nb_samples;
@@ -426,6 +444,7 @@ static int usage()
 	fprintf(stderr, "         dump       Dump the KAD database\n");
 	fprintf(stderr, "         samples    List of the samples\n");
 	fprintf(stderr, "         info       Get informations about the database\n");
+	fprintf(stderr, "         hist       Histogram of k-mer reccurencies\n");
 	fprintf(stderr, "\n");
 	return 1;
 }
@@ -445,6 +464,7 @@ int main(int argc, char *argv[])
   else if (strcmp(argv[1], "test") == 0) kad_test(db, argc-1, argv+1);
   else if (strcmp(argv[1], "samples") == 0) kad_samples(db, argc-1, argv+1);
   else if (strcmp(argv[1], "info") == 0) kad_info(db, argc-1, argv+1);
+  else if (strcmp(argv[1], "hist") == 0) kad_hist(db, argc-1, argv+1);
 	else {
 		fprintf(stderr, "[main] unrecognized command '%s'. Abort!\n", argv[1]);
 		return 1;
