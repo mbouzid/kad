@@ -1,5 +1,10 @@
 language: c
 
+addons:
+  apt:
+    packages:
+      - librocksdb-dev
+
 script: 
   - cd src && make
   - export PATH=$PATH:$PWD/src
