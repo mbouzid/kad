@@ -1,4 +1,4 @@
-# KAD - K-mer Abundance Database
+# KAD - K-mer Abundance Database [![Build Status](https://travis-ci.org/jaudoux/kad.svg?branch=master)](https://travis-ci.org/jaudoux/kad)
 
 KAD, is a database build with leveldb to store k-mer abundances of RNA-Seq
 samples.
