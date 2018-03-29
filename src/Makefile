@@ -1,7 +1,7 @@
 CXX = g++
 CXXFLAGS = -Wall -O2 -Wno-unused-function -std=c++11
 LDFLAGS = -lrocksdb -lz 
-#OBJS = kad
+OBJS = kad
 HEADERS=kstring.h kseq.h
 
 .PHONY: all
@@ -9,8 +9,8 @@ HEADERS=kstring.h kseq.h
 all: kad
 
 #%.o: %.c
-kad: kad.cc
-	$(CC) $(CXXFLAGS) -c $< -o $@ $(LDFLAGS)
+kad: kad.cc $(HEADERS)
+	$(CXX) $(CXXFLAGS) -c $< -o $@ $(LDFLAGS)
 
 clean:
 	rm $(OBJS)
