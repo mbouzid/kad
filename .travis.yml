@@ -26,5 +26,4 @@ install:
 
 script: 
   - cd src && make
-  - export PATH=$PATH:$PWD
-  - kad
+  - ./kad
