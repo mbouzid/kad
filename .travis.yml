@@ -27,4 +27,5 @@ install:
 script: 
   - cd src && make
   - ls -l
-  - ./kad
+  - ./kad index test test/1M-counts-sorted.tsv.gz
+  - ./kad query AAAAAAAAAAAAAAAAAAAAAAAAACCTAAAA
