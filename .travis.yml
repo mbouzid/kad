@@ -27,4 +27,6 @@ install:
 script: 
   - cd src && make
   - ls -l
+  # We should not have to do that
+  - chmod +x kad
   - ./kad
