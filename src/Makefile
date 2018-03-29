@@ -10,7 +10,7 @@ all: kad
 
 #%.o: %.c
 kad: kad.cc $(HEADERS)
-	$(CXX) $(CXXFLAGS) -c $< -o $@ $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) $< -o $@ $(LDFLAGS)
 
 clean:
 	rm $(OBJS)
