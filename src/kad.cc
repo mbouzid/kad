@@ -533,6 +533,7 @@ int kad_index_bulk(kad_db_t* db, int argc, char **argv)
   free(str->s); free(str);
   free(kmer->s); free(kmer);
   free(count);
+	free(sample_ids);
   return 0;
 }
 
