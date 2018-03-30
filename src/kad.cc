@@ -415,6 +415,127 @@ int kad_index(kad_db_t* db, int argc, char **argv)
   return 0;
 }
 
+int kad_index_bulk(kad_db_t* db, int argc, char **argv)
+{
+
+  if (argc < 2) {
+    fprintf(stderr, "\n");
+    fprintf(stderr, "Usage:   kad index_bulk [options] counts.tsv\n\n");
+    return 1;
+  }
+
+  std::string value;
+  char *file = argv[1];
+
+	
+  gzFile fp;
+  kstream_t *ks;
+  kstring_t *str,*kmer;
+  int dret, count_int;
+  uint16_t * count;
+  uint64_t kmer_int;
+  size_t nb_kmers = 0;
+  size_t batch_i = 0;
+  rocksdb::WriteBatch batch;
+
+  size_t nsamples = 0;
+  size_t capacity = 10;
+  uint16_t * sample_ids  = (uint16_t*)malloc(sizeof(uint16_t)*capacity);
+
+  kmer  = (kstring_t*)calloc(1, sizeof(kstring_t));
+  str   = (kstring_t*)calloc(1, sizeof(kstring_t));
+  fp = gzopen(file, "r");
+  if(!fp) { fprintf(stderr, "Failed to open %s\n", file); exit(EXIT_FAILURE); }
+
+  ks = ks_init(fp);
+  while ( dret != '\n' )
+  {
+    ks_getuntil(ks, 0, str, &dret);
+    kputs(str->s,kmer);
+    char * sample_name = str->s;
+    sample_ids[nsamples] = add_sample(db, sample_name);
+    ++nsamples;
+    if ( nsamples == capacity ) {
+      capacity += 10;
+      sample_ids = (uint16_t*)realloc (sample_ids,capacity*sizeof(uint16_t));
+			
+    }
+  }
+
+  size_t i = 0;
+  count = (uint16_t*)calloc(nsamples,sizeof(uint16_t));
+  while (ks_getuntil(ks, 0, str, &dret) >= 0) {
+    kputs(str->s,kmer);
+    kmer_int = str_to_int(str->s);
+    if ( i >= nsamples-1 )
+      i = 0;
+    if(dret != '\n') {
+      while ((i < nsamples) && ks_getuntil(ks, 0, str, &dret) > 0 && isdigit(str->s[0]) ) {
+        count_int = atoi(str->s);
+        if(count_int > UINT16_MAX)
+          count[i] = UINT16_MAX;
+        else
+          count[i] = (uint16_t)count_int;
+        ++i;
+      }			
+					
+      rocksdb::Slice key((char*)&kmer_int, sizeof(uint64_t));
+      
+      count_t * counts;
+      size_t nb_counts = nsamples ;
+      
+      rocksdb::Status s = db->counts_db->Get(rocksdb::ReadOptions(), key, &value);
+
+      if(s.ok()) {
+        nb_counts = (value.size() / sizeof(count_t)) + nsamples ;
+        counts = (count_t*)malloc(sizeof(count_t) * nb_counts);
+        memcpy(counts,value.data(),value.size());
+      } else {
+         counts = (count_t*)malloc(sizeof(count_t)*nb_counts);
+      }
+      
+      for (size_t i = 0; i < nsamples; ++i)
+        counts[nb_counts-nsamples+i] = { sample_ids[i], count[i] };
+				
+      rocksdb::Slice counts_value((char*)counts, nb_counts * sizeof(count_t));
+
+      if(batch_i < BUFFER_SIZE) {
+        batch.Put(key, counts_value);
+        ++batch_i;
+      }
+
+      if(batch_i == BUFFER_SIZE ) {
+        s = db->counts_db->Write(rocksdb::WriteOptions(), &batch);
+        if(!s.ok()) {
+          cerr << s.ToString() << endl;
+          exit(4);
+        }
+       batch.Clear();
+       batch_i = 0;
+     }
+     free(counts);
+    }
+     kmer->l = 0;
+     nb_kmers++;
+     if(nb_kmers % NB_KMERS_PRINT == 0)
+      cerr << nb_kmers  << " kmers loaded" << endl; 
+  }
+
+  if (batch_i < BUFFER_SIZE) {
+     db->counts_db->Write(rocksdb::WriteOptions(), &batch);
+     batch.Clear();
+  }
+
+  cerr << "Successfully loaded " << nb_kmers << " kmers" << endl;
+
+  ks_destroy(ks);
+  gzclose(fp);
+  free(str->s); free(str);
+  free(kmer->s); free(kmer);
+  free(count);
+  return 0;
+}
+
 /* main function */
 static int usage()
 {
@@ -422,6 +543,7 @@ static int usage()
 	fprintf(stderr, "Usage:   kad <command> <arguments>\n");
 	fprintf(stderr, "Version: %s\n\n", KAD_VERSION);
 	fprintf(stderr, "Command: index      Index k-mer counts from a samples\n");
+	fprintf(stderr, "         index_bulk Index k-mer counts from samples\n");
 	fprintf(stderr, "         query      Query the KAD database\n");
 	fprintf(stderr, "         dump       Dump the KAD database\n");
 	fprintf(stderr, "         samples    List of the samples\n");
@@ -439,6 +561,7 @@ int main(int argc, char *argv[])
   kad_db_t* db = kad_open(cwd);
 
 	if (strcmp(argv[1], "index") == 0) kad_index(db, argc-1, argv+1);
+	else if (strcmp(argv[1], "index_bulk") == 0) kad_index_bulk (db,argc, argv+1);
   else if (strcmp(argv[1], "dump") == 0) kad_dump(db, argc-1, argv+1);
   else if (strcmp(argv[1], "query") == 0) kad_query(db, argc-1, argv+1);
   else if (strcmp(argv[1], "random_query") == 0) kad_random_query(db, argc-1, argv+1);
