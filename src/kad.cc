@@ -278,6 +278,7 @@ int kad_random_query(kad_db_t* db, int argc, char **argv) {
   }
 
   size_t nb_queries = atoi(argv[1]);
+	
   string value;
 
   for(size_t i = 0; i < nb_queries; i++) {
@@ -472,6 +473,7 @@ int kad_index_bulk(kad_db_t* db, int argc, char **argv)
     if(dret != '\n') {
       while ((i < nsamples) && ks_getuntil(ks, 0, str, &dret) > 0 && isdigit(str->s[0]) ) {
         count_int = atoi(str->s);
+				
         if(count_int > UINT16_MAX)
           count[i] = UINT16_MAX;
         else
@@ -494,10 +496,15 @@ int kad_index_bulk(kad_db_t* db, int argc, char **argv)
          counts = (count_t*)malloc(sizeof(count_t)*nb_counts);
       }
       
-      for (size_t i = 0; i < nsamples; ++i)
-        counts[nb_counts-nsamples+i] = { sample_ids[i], count[i] };
-				
-      rocksdb::Slice counts_value((char*)counts, nb_counts * sizeof(count_t));
+			size_t l = 0;
+      for (size_t i = 0; i < nsamples; ++i) {
+				if (count[i] != 0) {
+        	counts[nb_counts-nsamples+l] = { sample_ids[i], count[i] };
+					++l;
+				}
+			}
+
+      rocksdb::Slice counts_value((char*)counts, l * sizeof(count_t));
 
       if(batch_i < BUFFER_SIZE) {
         batch.Put(key, counts_value);
